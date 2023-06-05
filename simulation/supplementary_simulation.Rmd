@@ -16,7 +16,7 @@ This document provides simulation studies in Section 5 of "Multiplicity adjustme
 for the Dunnett procedure under heteroscedasticity" by Tamhane and Xi.
 
 ```{r location, echo=F}
-folder <- "C:/Users/dxi1/OneDrive - Gilead Sciences/Paper/Dunnett/code/"
+folder <- "/dunnett/"
 ```
 
 ## Simulation function
