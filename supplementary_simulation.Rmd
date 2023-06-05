@@ -1,0 +1,465 @@
+---
+title: Simulations for "Multiplicity adjustments for the Dunnett procedure
+  under heteroscedasticity"
+author: ''
+date: "6/5/2023"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document provides simulation studies in Section 5 of "Multiplicity adjustments
+for the Dunnett procedure under heteroscedasticity" by Tamhane and Xi.
+
+```{r location, echo=F}
+folder <- "C:/Users/dxi1/OneDrive - Gilead Sciences/Paper/Dunnett/code/"
+```
+
+## Simulation function
+```{r function, echo=TRUE}
+setwd(folder)
+source("functions.R")
+sim <- function(x, arg) {
+  mu <- unlist(arg$mu[x])
+  sigma <- unlist(arg$sigma[x])
+  n <- unlist(arg$n[x])
+  direct <- arg$direction[x]
+  nrep <- arg$nrep[x]
+  alpha <- arg$alpha[x]
+  k <- length(mu)
+  padj0 <- padj1 <- padj2 <- padj3 <- matrix(0, nrow = nrep, ncol = k - 1)
+  time0 <- time1 <- time2 <- time3 <- rep(NA, nrep)
+  for(i in 1:nrep) {
+    data <- data.frame(trt = rep(1:k, n), mu = rep(mu, n), resp = NA)
+    muhat <- mu
+    s <- sigma
+    for (j in 1:k) {
+      temp <- rnorm(n = n[j], mean = mu[j], sd = sigma[j])
+      data$resp[data$trt == j] <- temp
+      muhat[j] <- mean(temp)
+      s[j] <- sqrt(sum((temp - muhat[j])^2) / (n[j] - 1))
+    }
+    summary <- data.frame(x = muhat, s2 = s^2, n = n)
+    t <- c(NA, mu[-1])
+    nu <- c(NA, mu[-1])
+    for (j in 2:k) {
+      t[j] <- (muhat[j] - muhat[1]) / sqrt(s[j]^2 / n[j] + s[1]^2 / n[1])
+      nu[j] <- (s[j]^2 / n[j] + s[1]^2 / n[1])^2 /
+        (s[j]^4 / n[j]^2 / (n[j] - 1) + s[1]^4 / n[1]^2 / (n[1] - 1))
+    }
+    summary <- data.frame(summary, t = t, nu = nu)
+    # Method 0
+    time <- proc.time()
+    padj0[i, ] <- homo_func(x_0 = summary$x[1], x = summary$x[-1],
+                            s2_0 = summary$s2[1], s2 = summary$s2[-1],
+                            n_0 = summary$n[1], n = summary$n[-1],
+                            direction = direct)
+    time0 <- c(proc.time() - time)[3]
+    # Method 1
+    time <- proc.time()
+    padj1[i, ] <- ind_func(x_0 = summary$x[1], x = summary$x[-1],
+                           s2_0 = summary$s2[1], s2 = summary$s2[-1],
+                           n_0 = summary$n[1], n = summary$n[-1],
+                           direction = direct)
+    time1 <- c(proc.time() - time)[3]
+    # Method 2
+    time <- proc.time()
+    padj2[i, ] <- PI_func(x_0 = summary$x[1], x = summary$x[-1],
+                          s2_0 = summary$s2[1], s2 = summary$s2[-1],
+                          n_0 = summary$n[1], n = summary$n[-1],
+                          direction = direct)
+    time2 <- c(proc.time() - time)[3]
+    # Method 3
+    m <- 1e5
+    time <- proc.time()
+    padj3[i, ] <- sim_based_func(x_0 = summary$x[1], x = summary$x[-1],
+                                 s2_0 = summary$s2[1], s2 = summary$s2[-1],
+                                 n_0 = summary$n[1], n = summary$n[-1],
+                                 direction = direct, nsim = m)
+    time3 <- c(proc.time() - time)[3]
+  }
+  
+  m0 <- m1 <- m2 <- m3 <- 0
+  dec0 <- padj0 <= alpha
+  dec1 <- padj1 <= alpha
+  dec2 <- padj2 <= alpha
+  dec3 <- padj3 <= alpha
+  if (all(mu[-1] - mu[1] == 0)) {
+    m0 <- mean(apply(dec0, 1, max))
+    m1 <- mean(apply(dec1, 1, max))
+    m2 <- mean(apply(dec2, 1, max))
+    m3 <- mean(apply(dec3, 1, max))
+  } else if (all(mu[-1] - mu[1] > 0)) {
+    m0 <- m1 <- m2 <- m3 <- NA
+  } else {
+    temp <- which(mu[-1] - mu[1] == 0)
+    if (length(temp) == 1) {
+      m0 <- mean(dec0[, temp])
+      m1 <- mean(dec1[, temp])
+      m2 <- mean(dec2[, temp])
+      m3 <- mean(dec3[, temp])
+    } else {
+      m0 <- mean(apply(dec0[, temp], 1, max))
+      m1 <- mean(apply(dec1[, temp], 1, max))
+      m2 <- mean(apply(dec2[, temp], 1, max))
+      m3 <- mean(apply(dec3[, temp], 1, max))
+    }
+  }
+  out <- matrix(c(mu, n, sigma^2, nrep, alpha, mean(time0), m0, mean(time1),
+                  m1, mean(time2), m2, mean(time3), m3), nrow = 1)
+  colnames(out) <- c(paste0("mu_", 0:(k - 1)),
+                     paste0("n_", 0:(k - 1)),
+                     paste0("sigma_", 0:(k - 1),".2"),
+                     "nrep",
+                     "alpha",
+                     "time0", "m0_fwer",
+                     "time1", "m1_fwer",
+                     "time2", "m2_fwer",
+                     "time3", "m3_fwer"
+  )
+  return(out)
+}
+```
+
+## Simulation scenarios for two treatment groups and control
+We used the nominal one-sided $\alpha=0.025$ and the total sample size $N=30$.
+The following seven scenarios were considered where scenarios 1, 3, 4 and 5 were
+also considered by Hasler and Hornthon (2008). For each scenario, 100,000
+simulated data sets were generated for each method under the global null
+hypothesis of $\mu_0=\mu_1=\mu_2=0$. For Method 3, 100,000 replicates were
+generated for each simulation.
+
+1. Balanced allocation with equal standard deviations:\
+$n_0=10, n_1=10, n_2=10$ and $\sigma_0=30, \sigma_1=30, \sigma_2=30$
+2. Balanced allocation with control having the largest standard deviation:\
+$n_0=10, n_1=10, n_2=10$ and $\sigma_0=50, \sigma_1=10, \sigma_2=10$
+3. Balanced allocation with one treatment having the largest standard
+deviation:\
+$n_0=10, n_1=10, n_2=10$ and $\sigma_0=10, \sigma_1=10, \sigma_2=50$
+4. Unbalanced allocation with control having the smallest sample size and
+standard deviation:\
+$n_0=4, n_1=13, n_2=13$ and $\sigma_0=10, \sigma_1=10, \sigma_2=50$
+5. Unbalanced allocation with one treatment having the smallest sample size
+and the largest standard deviation:\
+$n_0=13, n_1=13, n_2=4$ and $\sigma_0=10, \sigma_1=10, \sigma_2=50$
+6. Unbalanced allocation with control having the smallest sample size and
+the largest standard deviation:\
+$n_0=4, n_1=13, n_2=13$ and $\sigma_0=50, \sigma_1=10, \sigma_2=10$
+7. Unbalanced allocation with a treatment having the smallest sample size
+and the smallest standard deviation:\
+$n_0=13, n_1=13, n_2=4$ and $\sigma_0=50, \sigma_1=10, \sigma_2=10$
+
+```{r scenarios two, echo=TRUE}
+arg <- data.frame(mu = I(list(rep(0, 3), rep(0, 3), rep(0, 3), rep(0, 3),
+                              rep(0, 3), rep(0, 3), rep(0, 3),
+                              c(0, 20, 0), c(0, 20, 0), c(0, 20, 0), c(0, 20, 0),
+                              c(0, 20, 0), c(0, 20, 0), c(0, 20, 0))),
+                  n = I(list(rep(10, 3), rep(10, 3), rep(10, 3), c(4, 13, 13),
+                           c(13, 13, 4), c(4, 13, 13),
+                           c(13, 13, 4),
+                           rep(10, 3), rep(10, 3), rep(10, 3), c(4, 13, 13),
+                           c(13, 13, 4), c(4, 13, 13),
+                           c(13, 13, 4))),
+                  sigma = I(list(rep(30, 3), c(50, 10, 10), c(10, 10, 50), c(10, 10, 50),
+                               c(10, 10, 50), c(50, 10, 10), c(50, 10, 10),
+                               rep(30, 3), c(50, 10, 10), c(10, 10, 50), c(10, 10, 50),
+                               c(10, 10, 50), c(50, 10, 10), c(50, 10, 10))),
+                  direction = "lower", nrep = 1e5, alpha = 0.025)
+n_arg <- nrow(arg)
+
+# # Parallel
+# library(future.apply)
+# plan(cluster)
+# seed <- 10000
+# result <- future_lapply(1:n_arg, FUN = sim, future.seed = seed,
+#                         future.packages = c("mvtnorm"), arg = arg, future.scheduling = n_arg)
+# results <- as.data.frame(do.call(rbind, result))
+```
+
+### Tables 1 and 2
+```{r outputs two, echo=TRUE}
+results <- read.csv("two_treatment_groups.csv")
+data_tbl1 <- subset(results, mu_1 == 0, select = -c(mu_0, mu_1, mu_2,
+                                                    n_0, n_1, n_2,
+                                                    sigma_0.2, sigma_1.2, sigma_2.2,
+                                                    nrep, alpha,
+                                                    time0, time1, time2, time3))
+row.names(data_tbl1) <- 1:nrow(data_tbl1)
+t(data_tbl1) # Table 1
+
+data_tbl2 <- subset(results, mu_1 == 20, select = -c(mu_0, mu_1, mu_2,
+                                                     n_0, n_1, n_2,
+                                                     sigma_0.2, sigma_1.2, sigma_2.2,
+                                                     nrep, alpha,
+                                                     time0, time1, time2, time3))
+row.names(data_tbl2) <- 1:nrow(data_tbl2)
+t(data_tbl2) # Table 2
+
+data_time <- subset(results, select = -c(mu_0, mu_1, mu_2,
+                                         n_0, n_1, n_2,
+                                         sigma_0.2, sigma_1.2, sigma_2.2,
+                                         nrep, alpha,
+                                         m0_fwer, m1_fwer, m2_fwer, m3_fwer))
+round(colMeans(data_time), 4) # Mean computing time for each replication
+
+```
+## Simulation scenarios for three treatment groups and control
+We used the nominal one-sided $\alpha=0.025$ and the total sample size $N=40$.
+The following seven scenarios were considered. For each scenario, 100,000
+simulated data sets were generated for each method under the global null
+hypothesis of $\mu_0=\mu_1=\mu_2=\mu_3=0$,
+under $\mu_0=\mu_2=\mu_3=0, \mu_1=20$, and
+under $\mu_0=\mu_3=0, \mu_1=\mu_2=20$. For Method 3, 100,000 replicates were
+generated for each simulation.
+
+1. Balanced allocation with equal standard deviations:
+$n_0=10, n_1=10, n_2=10, n_3=10$ and
+$\sigma_0=30, \sigma_1=30, \sigma_2=30, \sigma_3=30$
+2. Balanced allocation with control having the largest standard deviation:
+$n_0=10, n_1=10, n_2=10, n_3=10$ and
+$\sigma_0=50, \sigma_1=10, \sigma_2=10, \sigma_3=10$
+3. Balanced allocation with one treatment having the largest standard
+deviation:
+$n_0=10, n_1=10, n_2=10, n_3=10$ and
+$\sigma_0=10, \sigma_1=10, \sigma_2=10, \sigma_3=50$
+4. Unbalanced allocation with control having the smallest sample size and
+standard deviation:
+$n_0=4, n_1=12, n_2=12, n_3=12$ and
+$\sigma_0=10, \sigma_1=10, \sigma_2=10, \sigma_3=50$
+5. Unbalanced allocation with one treatment having the smallest sample size
+and the largest standard deviation:
+$n_0=12, n_1=12, n_2=12, n_3=4$ and
+$\sigma_0=10, \sigma_1=10, \sigma_2=10, \sigma_3=50$
+6. Unbalanced allocation with control having the smallest sample size and
+the largest standard deviation:
+$n_0=4, n_1=12, n_2=12, n_3=12$ and
+$\sigma_0=50, \sigma_1=10, \sigma_2=10, \sigma_3=10$
+7. Unbalanced allocation with a treatment having the smallest sample size
+and the smallest standard deviation:
+$n_0=12, n_1=12, n_2=12, n_3=4$ and
+$\sigma_0=50, \sigma_1=10, \sigma_2=10, \sigma_3=10$
+
+```{r scenarios three, echo=TRUE}
+arg <- data.frame(mu = I(list(rep(0, 4), rep(0, 4), rep(0, 4), rep(0, 4),
+                              rep(0, 4), rep(0, 4), rep(0, 4),
+                              c(0, 20, 0, 0), c(0, 20, 0, 0), c(0, 20, 0, 0),
+                              c(0, 20, 0, 0), c(0, 20, 0, 0), c(0, 20, 0, 0),
+                              c(0, 20, 0, 0),
+                              c(0, 20, 20, 0), c(0, 20, 20, 0), c(0, 20, 20, 0),
+                              c(0, 20, 20, 0), c(0, 20, 20, 0), c(0, 20, 20, 0),
+                              c(0, 20, 20, 0))),
+                  n = I(list(rep(10, 4), rep(10, 4), rep(10, 4), c(4, 12, 12, 12),
+                           c(12, 12, 12, 4), c(4, 12, 12, 12),
+                           c(12, 12, 12, 4),
+                           rep(10, 4), rep(10, 4), rep(10, 4), c(4, 12, 12, 12),
+                           c(12, 12, 12, 4), c(4, 12, 12, 12),
+                           c(12, 12, 12, 4),
+                           rep(10, 4), rep(10, 4), rep(10, 4), c(4, 12, 12, 12),
+                           c(12, 12, 12, 4), c(4, 12, 12, 12),
+                           c(12, 12, 12, 4))),
+                  sigma = I(list(rep(30, 4), c(50, 10, 10, 10), c(10, 10, 10, 50),
+                                 c(10, 10, 10, 50), c(10, 10, 10, 50),
+                                 c(50, 10, 10, 10), c(50, 10, 10, 10),
+                               rep(30, 4), c(50, 10, 10, 10), c(10, 10, 10, 50),
+                                 c(10, 10, 10, 50), c(10, 10, 10, 50),
+                               c(50, 10, 10, 10), c(50, 10, 10, 10),
+                               rep(30, 4), c(50, 10, 10, 10), c(10, 10, 10, 50),
+                                 c(10, 10, 10, 50), c(10, 10, 10, 50),
+                               c(50, 10, 10, 10), c(50, 10, 10, 10))),
+                  direction = "lower", nrep = 1e5, alpha = 0.025)
+n_arg <- nrow(arg)
+
+# # Parallel
+# library(future.apply)
+# plan(cluster)
+# seed <- 10000
+# result <- future_lapply(1:n_arg, FUN = sim, future.seed = seed,
+#                         future.packages = c("mvtnorm"), arg = arg,
+# future.scheduling = n_arg)
+# results <- as.data.frame(do.call(rbind, result))
+```
+
+### Results for three treatment groups and control
+```{r outputs three, echo=TRUE}
+results <- read.csv("three_treatment_groups.csv")
+# $\mu_0=\mu_1=\mu_2=\mu_3=0$
+data_0_0_0_0 <- subset(results, mu_1 == 0 & mu_2 == 0,
+                       select = -c(mu_0, mu_1, mu_2, mu_3,
+                                   n_0, n_1, n_2, n_3,
+                                   sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                   nrep, alpha,
+                                   time0, time1, time2, time3))
+row.names(data_0_0_0_0) <- 1:nrow(data_0_0_0_0)
+t(data_0_0_0_0) # $\mu_0=\mu_1=\mu_2=\mu_3=0$
+
+# $\mu_0=\mu_2=\mu_3=0, \mu_1=20$
+data_0_20_0_0 <- subset(results, mu_1 == 20 & mu_2 == 0,
+                        select = -c(mu_0, mu_1, mu_2, mu_3,
+                                    n_0, n_1, n_2, n_3,
+                                    sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                    nrep, alpha,
+                                    time0, time1, time2, time3))
+row.names(data_0_20_0_0) <- 1:nrow(data_0_20_0_0)
+t(data_0_20_0_0) # $\mu_0=\mu_2=\mu_3=0, \mu_1=20$
+
+# $\mu_0=\mu_3=0, \mu_1=\mu_2=20$
+data_0_20_20_0 <- subset(results, mu_1 == 20 & mu_2 == 20,
+                         select = -c(mu_0, mu_1, mu_2, mu_3,
+                                    n_0, n_1, n_2, n_3,
+                                    sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                    nrep, alpha,
+                                    time0, time1, time2, time3))
+row.names(data_0_20_20_0) <- 1:nrow(data_0_20_20_0)
+t(data_0_20_20_0) # $\mu_0=\mu_3=0, \mu_1=\mu_2=20$
+
+data_time <- subset(results, select = -c(mu_0, mu_1, mu_2, mu_3,
+                                         n_0, n_1, n_2, n_3,
+                                         sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                         nrep, alpha, 
+                                         m0_fwer, m1_fwer, m2_fwer, m3_fwer))
+round(colMeans(data_time), 4) # Mean computing time for each replication
+
+```
+
+## Simulation scenarios for four treatment groups and control
+We used the nominal one-sided $\alpha=0.025$ and the total sample size $N=50$.
+The following seven scenarios were considered. For each scenario, 100,000
+simulated data sets were generated for each method under the global null
+hypothesis of $\mu_0=\mu_1=\mu_2=\mu_3=\mu_4=0$,
+under $\mu_0=\mu_2=\mu_3=\mu_4=0, \mu_1=20$,
+under $\mu_0=\mu_3=\mu_4=0, \mu_1=\mu_2=20$, and under
+under $\mu_0=\mu_4=0, \mu_1=\mu_2=\mu_3=20$. For Method 3, 100,000 replicates were
+generated for each simulation.
+
+1. Balanced allocation with equal standard deviations:
+$n_0=10, n_1=10, n_2=10, n_3=10, n_4=10$ and
+$\sigma_0=30, \sigma_1=30, \sigma_2=30, \sigma_3=30, \sigma_4=30$
+2. Balanced allocation with control having the largest standard deviation:
+$n_0=10, n_1=10, n_2=10, n_3=10, n_4=10$ and
+$\sigma_0=50, \sigma_1=10, \sigma_2=10, \sigma_3=10, \sigma_4=10$
+3. Balanced allocation with one treatment having the largest standard
+deviation:
+$n_0=10, n_1=10, n_2=10, n_3=10, n_4=10$ and
+$\sigma_0=10, \sigma_1=10, \sigma_2=10, \sigma_3=10, \sigma_4=50$
+4. Unbalanced allocation with control having the smallest sample size and
+standard deviation:
+$n_0=6, n_1=11, n_2=11, n_3=11, n_4=11$ and
+$\sigma_0=10, \sigma_1=10, \sigma_2=10, \sigma_3=10, \sigma_4=50$
+5. Unbalanced allocation with one treatment having the smallest sample size
+and the largest standard deviation:
+$n_0=11, n_1=11, n_2=11, n_3=11, n_4=6$ and
+$\sigma_0=10, \sigma_1=10, \sigma_2=10, \sigma_3=10, \sigma_4=50$
+6. Unbalanced allocation with control having the smallest sample size and
+the largest standard deviation:
+$n_0=6, n_1=11, n_2=11, n_3=11, n_4=11$ and
+$\sigma_0=50, \sigma_1=10, \sigma_2=10, \sigma_3=10, \sigma_4=10$
+7. Unbalanced allocation with a treatment having the smallest sample size
+and the smallest standard deviation:
+$n_0=11, n_1=11, n_2=11, n_3=11, n_4=6$ and
+$\sigma_0=50, \sigma_1=10, \sigma_2=10, \sigma_3=10, \sigma_4=10$
+
+```{r scenarios four, echo=TRUE}
+arg <- data.frame(mu = I(list(rep(0, 5), rep(0, 5), rep(0, 5), rep(0, 5),
+                             rep(0, 5), rep(0, 5), rep(0, 5),
+                             c(0, 20, 0, 0, 0), c(0, 20, 0, 0, 0), c(0, 20, 0, 0, 0),
+                             c(0, 20, 0, 0, 0), c(0, 20, 0, 0, 0), c(0, 20, 0, 0, 0),
+                             c(0, 20, 0, 0, 0),
+                             c(0, 20, 20, 0, 0), c(0, 20, 20, 0, 0), c(0, 20, 20, 0, 0),
+                             c(0, 20, 20, 0, 0), c(0, 20, 20, 0, 0), c(0, 20, 20, 0, 0),
+                             c(0, 20, 20, 0, 0),
+                             c(0, 20, 20, 20, 0), c(0, 20, 20, 20, 0), c(0, 20, 20, 20, 0),
+                             c(0, 20, 20, 20, 0), c(0, 20, 20, 20, 0), c(0, 20, 20, 20, 0),
+                             c(0, 20, 20, 20, 0))),
+                 n = I(list(rep(10, 5), rep(10, 5), rep(10, 5), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6),
+                            rep(10, 5), rep(10, 5), rep(10, 5), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6),
+                            rep(10, 5), rep(10, 5), rep(10, 5), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6),
+                            rep(10, 5), rep(10, 5), rep(10, 5), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6), c(6, 11, 11, 11, 11),
+                            c(11, 11, 11, 11, 6))),
+                 sigma = I(list(rep(30, 5), c(50, 10, 10, 10, 10), c(10, 10, 10, 10, 50),
+                                c(10, 10, 10, 10, 50), c(10, 10, 10, 10, 50), c(50, 10, 10, 10, 10),
+                                c(50, 10, 10, 10, 10),
+                                rep(30, 5), c(50, 10, 10, 10, 10), c(10, 10, 10, 10, 50),
+                                c(10, 10, 10, 10, 50), c(10, 10, 10, 10, 50), c(50, 10, 10, 10, 10),
+                                c(50, 10, 10, 10, 10),
+                                rep(30, 5), c(50, 10, 10, 10, 10), c(10, 10, 10, 10, 50),
+                                c(10, 10, 10, 10, 50), c(10, 10, 10, 10, 50), c(50, 10, 10, 10, 10),
+                                c(50, 10, 10, 10, 10),
+                                rep(30, 5), c(50, 10, 10, 10, 10), c(10, 10, 10, 10, 50),
+                                c(10, 10, 10, 10, 50), c(10, 10, 10, 10, 50), c(50, 10, 10, 10, 10),
+                                c(50, 10, 10, 10, 10))),
+                 direction = "lower", nrep = 1e5, alpha = 0.025)
+n_arg <- nrow(arg)
+
+# # Parallel
+# library(future.apply)
+# # plan(cluster)
+# seed <- 10000
+# result <- future_lapply(1:n_arg, FUN = sim, future.seed = seed,
+#                         future.packages = c("mvtnorm"), arg = arg,
+# future.scheduling = n_arg)
+# results <- as.data.frame(do.call(rbind, result))
+```
+
+### Results for four treatment groups and control
+```{r outputs four, echo=TRUE}
+# $\mu_0=\mu_1=\mu_2=\mu_3=\mu_4=0$
+results <- read.csv("four_treatment_groups.csv")
+data_0_0_0_0_0 <- subset(results, mu_1 == 0 & mu_2 == 0 & mu_3 == 0,
+                         select = -c(mu_0, mu_1, mu_2, mu_3, mu_4,
+                                     n_0, n_1, n_2, n_3, n_4,
+                                     sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                     sigma_4.2,
+                                     nrep, alpha, time0, time1, time2, time3))
+row.names(data_0_0_0_0_0) <- 1:nrow(data_0_0_0_0_0)
+t(data_0_0_0_0_0) # $\mu_0=\mu_1=\mu_2=\mu_3=\mu_4=0$
+
+# $\mu_0=\mu_2=\mu_3=\mu_4=0, \mu_1=20$
+data_0_20_0_0_0 <- subset(results, mu_1 == 20 & mu_2 == 0 & mu_3 == 0,
+                          select = -c(mu_0, mu_1, mu_2, mu_3, mu_4,
+                                     n_0, n_1, n_2, n_3, n_4,
+                                     sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                     sigma_4.2,
+                                     nrep, alpha, time0, time1, time2, time3))
+row.names(data_0_20_0_0_0) <- 1:nrow(data_0_20_0_0_0)
+t(data_0_20_0_0_0) # $\mu_0=\mu_2=\mu_3=\mu_4=0, \mu_1=20$
+
+# $\mu_0=\mu_3=\mu_4=0, \mu_1=\mu_2=20$
+data_0_20_20_0_0 <- subset(results, mu_1 == 20 & mu_2 == 20 & mu_3 == 0,
+                           select = -c(mu_0, mu_1, mu_2, mu_3, mu_4,
+                                     n_0, n_1, n_2, n_3, n_4,
+                                     sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                     sigma_4.2,
+                                     nrep, alpha, time0, time1, time2, time3))
+row.names(data_0_20_20_0_0) <- 1:nrow(data_0_20_20_0_0)
+t(data_0_20_20_0_0) # $\mu_0=\mu_3=\mu_4=0, \mu_1=\mu_2=20$
+
+# $\mu_0=\mu_4=0, \mu_1=\mu_2=\mu_3=20$
+data_0_20_20_20_0 <- subset(results, mu_1 == 20 & mu_2 == 20 & mu_3 == 20,
+                            select = -c(mu_0, mu_1, mu_2, mu_3, mu_4,
+                                     n_0, n_1, n_2, n_3, n_4,
+                                     sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2,
+                                     sigma_4.2,
+                                     nrep, alpha, time0, time1, time2, time3))
+row.names(data_0_20_20_20_0) <- 1:nrow(data_0_20_20_20_0)
+t(data_0_20_20_20_0) # $\mu_0=\mu_4=0, \mu_1=\mu_2=\mu_3=20$
+
+data_time <- subset(results, select = -c(mu_0, mu_1, mu_2, mu_3, mu_4,
+                                         n_0, n_1, n_2, n_3, n_4,
+                                         sigma_0.2, sigma_1.2, sigma_2.2, sigma_3.2, sigma_4.2,
+                                         nrep, alpha, 
+                                         m0_fwer, m1_fwer, m2_fwer, m3_fwer))
+round(colMeans(data_time), 4) # Mean computing time for each replication
+
+sessionInfo()
+```
