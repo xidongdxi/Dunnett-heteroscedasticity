@@ -15,14 +15,10 @@ knitr::opts_chunk$set(echo = TRUE)
 This document provides simulation studies in Section 5 of "Multiplicity adjustments
 for the Dunnett procedure under heteroscedasticity" by Tamhane and Xi.
 
-```{r location, echo=F}
-folder <- "/dunnett/"
-```
-
 ## Simulation function
 ```{r function, echo=TRUE}
-setwd(folder)
-source("functions.R")
+setwd("/dunnett/simulation/")
+source("/dunnett/functions.R")
 sim <- function(x, arg) {
   mu <- unlist(arg$mu[x])
   sigma <- unlist(arg$sigma[x])
@@ -182,7 +178,7 @@ n_arg <- nrow(arg)
 
 ### Tables 1 and 2
 ```{r outputs two, echo=TRUE}
-results <- read.csv("two_treatment_groups.csv")
+results <- read.csv("/dunnett/simulation/two_treatment_groups.csv")
 data_tbl1 <- subset(results, mu_1 == 0, select = -c(mu_0, mu_1, mu_2,
                                                     n_0, n_1, n_2,
                                                     sigma_0.2, sigma_1.2, sigma_2.2,
@@ -285,7 +281,7 @@ n_arg <- nrow(arg)
 
 ### Results for three treatment groups and control
 ```{r outputs three, echo=TRUE}
-results <- read.csv("three_treatment_groups.csv")
+results <- read.csv("/dunnett/simulation/three_treatment_groups.csv")
 # $\mu_0=\mu_1=\mu_2=\mu_3=0$
 data_0_0_0_0 <- subset(results, mu_1 == 0 & mu_2 == 0,
                        select = -c(mu_0, mu_1, mu_2, mu_3,
@@ -414,7 +410,7 @@ n_arg <- nrow(arg)
 ### Results for four treatment groups and control
 ```{r outputs four, echo=TRUE}
 # $\mu_0=\mu_1=\mu_2=\mu_3=\mu_4=0$
-results <- read.csv("four_treatment_groups.csv")
+results <- read.csv("/dunnett/simulation/four_treatment_groups.csv")
 data_0_0_0_0_0 <- subset(results, mu_1 == 0 & mu_2 == 0 & mu_3 == 0,
                          select = -c(mu_0, mu_1, mu_2, mu_3, mu_4,
                                      n_0, n_1, n_2, n_3, n_4,
