@@ -119,13 +119,9 @@ diag(corr_U_approx) <- 1
 round(corr_U_approx, 3) # Correlation matrix among the $U_i$’s using (9)
 ```
 ## Load functions for Methods 0-3
-```{r location, echo=F}
-folder <- "C:/Users/dxi1/OneDrive - Gilead Sciences/Paper/Dunnett/code/"
-```
-
 ```{r functions, echo=TRUE}
-setwd(folder)
-source("functions.R")
+setwd("/dunnett/case/")
+source("/dunnett/functions.R")
 ```
 
 ## Adjusted p-values of Methods 0
